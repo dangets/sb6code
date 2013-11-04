@@ -64,7 +64,7 @@
 
 #define GLFW_NO_GLU 1
 #define GLFW_INCLUDE_GLCOREARB 1
-#include "GL/glfw.h"
+#include "GLFW/glfw3.h"
 #include "GL/gl3w.h"
 
 #include "sb6ext.h"
@@ -81,46 +81,60 @@ public:
     virtual ~application() {}
     virtual void run(sb6::application* the_app)
     {
-        bool running = true;
         app = the_app;
 
         glfwInit();
 
         init();
 
-        glfwOpenWindowHint(GLFW_OPENGL_VERSION_MAJOR, info.majorVersion);
-        glfwOpenWindowHint(GLFW_OPENGL_VERSION_MINOR, info.minorVersion);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, info.majorVersion);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, info.minorVersion);
 #ifdef _DEBUG
-        glfwOpenWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+        glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
 #endif /* _DEBUG */
-        glfwOpenWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-        glfwOpenWindowHint(GLFW_FSAA_SAMPLES, info.samples);
-        glfwOpenWindowHint(GLFW_STEREO, info.flags.stereo ? GL_TRUE : GL_FALSE);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+        glfwWindowHint(GLFW_SAMPLES, info.samples);
+        glfwWindowHint(GLFW_STEREO, info.flags.stereo ? GL_TRUE : GL_FALSE);
+
+        glfwWindowHint(GLFW_RED_BITS, 8);
+        glfwWindowHint(GLFW_GREEN_BITS, 8);
+        glfwWindowHint(GLFW_BLUE_BITS, 8);
+        glfwWindowHint(GLFW_ALPHA_BITS, 0);
+        glfwWindowHint(GLFW_DEPTH_BITS, 32);
+        glfwWindowHint(GLFW_STENCIL_BITS, 0);
+
         if (info.flags.fullscreen)
         {
+            GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+
             if (info.windowWidth == 0 || info.windowHeight == 0)
             {
-                GLFWvidmode mode;
-                glfwGetDesktopMode(&mode);
-                info.windowWidth = mode.Width;
-                info.windowHeight = mode.Height;
+                const GLFWvidmode * mode = glfwGetVideoMode(monitor);
+                info.windowWidth = mode->width;
+                info.windowHeight = mode->height;
             }
-            glfwOpenWindow(info.windowWidth, info.windowHeight, 8, 8, 8, 0, 32, 0, GLFW_FULLSCREEN);
-            glfwSwapInterval((int)info.flags.vsync);
+
+            glfwWindowHint(GLFW_REFRESH_RATE, (int)info.flags.vsync);
+            window = glfwCreateWindow(info.windowWidth, info.windowHeight, info.title, monitor, NULL);
         }
         else
         {
-            glfwOpenWindow(info.windowWidth, info.windowHeight, 8, 8, 8, 0, 32, 0, GLFW_WINDOW);
+            window = glfwCreateWindow(info.windowWidth, info.windowHeight, info.title, NULL, NULL);
         }
-        glfwSetWindowTitle(info.title);
-        glfwSetWindowSizeCallback(glfw_onResize);
-        glfwSetKeyCallback(glfw_onKey);
-        glfwSetMouseButtonCallback(glfw_onMouseButton);
-        glfwSetMousePosCallback(glfw_onMouseMove);
-        glfwSetMouseWheelCallback(glfw_onMouseWheel);
-        (info.flags.cursor ? glfwEnable : glfwDisable)(GLFW_MOUSE_CURSOR);
 
-        info.flags.stereo = (glfwGetWindowParam(GLFW_STEREO) ? 1 : 0);
+        glfwSetWindowSizeCallback(window, glfw_onResize);
+        glfwSetKeyCallback(window, glfw_onKey);
+        glfwSetMouseButtonCallback(window, glfw_onMouseButton);
+        glfwSetCursorPosCallback(window, glfw_onMouseMove);
+        glfwSetScrollCallback(window, glfw_onMouseWheel);
+
+        if (info.flags.cursor) {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        } else {
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        }
+
+        info.flags.stereo = (glfwGetWindowAttrib(window, GLFW_STEREO) ? 1 : 0);
 
         gl3wInit();
 
@@ -140,15 +154,14 @@ public:
 
         startup();
 
-        do
-        {
+        glfwMakeContextCurrent(window);
+
+        while (!glfwWindowShouldClose(window)) {
             render(glfwGetTime());
 
-            glfwSwapBuffers();
-
-            running &= (glfwGetKey( GLFW_KEY_ESC ) == GLFW_RELEASE);
-            running &= (glfwGetWindowParam( GLFW_OPENED ) != GL_FALSE);
-        } while(running);
+            glfwSwapBuffers(window);
+            glfwPollEvents();
+        }
 
         shutdown();
 
@@ -224,9 +237,12 @@ public:
 #endif /* _WIN32 */
     }
 
-    static void getMousePosition(int& x, int& y)
+    void getMousePosition(int& x, int& y)
     {
-        glfwGetMousePos(&x, &y);
+        double dx, dy;
+        glfwGetCursorPos(window, &dx, &dy);
+        x = (int)dx;
+        y = (int)dy;
     }
 
 public:
@@ -254,31 +270,36 @@ public:
 
 protected:
     APPINFO     info;
+    GLFWwindow *window;
     static      sb6::application * app;
 
-    static void GLFWCALL glfw_onResize(int w, int h)
+    static void glfw_onResize(GLFWwindow *window, int w, int h)
     {
         app->onResize(w, h);
     }
 
-    static void GLFWCALL glfw_onKey(int key, int action)
+    static void glfw_onKey(GLFWwindow *window, int key, int scancode, int action, int mods)
     {
+        if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+            glfwSetWindowShouldClose(window, GL_TRUE);
+        }
+
         app->onKey(key, action);
     }
 
-    static void GLFWCALL glfw_onMouseButton(int button, int action)
+    static void glfw_onMouseButton(GLFWwindow *window, int button, int action, int mods)
     {
         app->onMouseButton(button, action);
     }
 
-    static void GLFWCALL glfw_onMouseMove(int x, int y)
+    static void glfw_onMouseMove(GLFWwindow *window, double x, double y)
     {
-        app->onMouseMove(x, y);
+        app->onMouseMove((int)x, (int)y);
     }
 
-    static void GLFWCALL glfw_onMouseWheel(int pos)
+    static void glfw_onMouseWheel(GLFWwindow *window, double xoffset, double yoffset)
     {
-        app->onMouseWheel(pos);
+        app->onMouseWheel((int)yoffset);
     }
 
     void setVsync(bool enable)
